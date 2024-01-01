@@ -258,7 +258,9 @@ jobs:
         git clone https://github.com/maju-blogs/KernelSU_Action
         cp android-kernel/out/arch/${{ env.ARCH }}/boot/${{ env.KERNEL_IMAGE_NAME }} AnyKernel3/
         ls -l android-kernel/out/arch/${{ env.ARCH }}/boot/
+        
         if [ ${{ env.CHECK_DTBO_IS_OK }} = true ]; then
+            cp android-kernel/out/arch/${{ env.ARCH }}/boot/dts/vendor/qcom/kona.dtb AnyKernel3/dtb
             cp android-kernel/out/arch/${{ env.ARCH }}/boot/dtbo.img AnyKernel3/
         fi
         rm -rf AnyKernel3/.git* AnyKernel3/README.md

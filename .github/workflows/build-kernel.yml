@@ -18,6 +18,10 @@ jobs:
     - uses: actions/checkout@v3
     - name: Prepare Configuration
       run: |
+        echo "LXC_DOCKER=$(cat config.env | grep -w "LXC_DOCKER" | head -n 1 | cut -d "=" -f 2)" >> $GITHUB_ENV
+        echo "LXC_PATCH=$(cat config.env | grep -w "LXC_PATCH" | head -n 1 | cut -d "=" -f 2)" >> $GITHUB_ENV
+        echo "ANDROID_PARANOID_NETWORK_OFF=$(cat config.env | grep -w "ANDROID_PARANOID_NETWORK_OFF" | head -n 1 | cut -d "=" -f 2)" >> $GITHUB_ENV
+        echo "CUT_PYTHON=$(cat config.env | grep -w "CUT_PYTHON" | head -n 1 | cut -d "=" -f 2)" >> $GITHUB_ENV
         echo "KERNEL_SOURCE=$(cat config.env | grep -w "KERNEL_SOURCE" | head -n 1 | cut -d "=" -f 2)" >> $GITHUB_ENV
         echo "KERNEL_SOURCE_BRANCH=$(cat config.env | grep -w "KERNEL_SOURCE_BRANCH" | head -n 1 | cut -d "=" -f 2)" >> $GITHUB_ENV
         echo "KERNEL_CONFIG=$(cat config.env | grep -w "KERNEL_CONFIG" | head -n 1 | cut -d "=" -f 2)" >> $GITHUB_ENV
@@ -56,7 +60,13 @@ jobs:
         sudo apt-get install device-tree-compiler
         sudo apt-get install git  automake flex lzop bison gperf build-essential zip curl zlib1g-dev g++-multilib libxml2-utils bzip2 libbz2-dev libbz2-1.0 libghc-bzlib-dev squashfs-tools pngcrush schedtool dpkg-dev liblz4-tool  optipng maven libssl-dev pwgen libswitch-perl policycoreutils minicom libxml-sax-base-perl libxml-simple-perl bc libc6-dev-i386 lib32ncurses5-dev libx11-dev lib32z-dev libgl1-mesa-dev xsltproc unzip device-tree-compiler python2 python3
         mkdir -p $GITHUB_WORKSPACE/kernel_workspace
-
+        
+    - name: 切换python2.7
+      if: env.CUT_PYTHON == 'true'
+      run: |
+       sudo rm /bin/python
+       sudo ln -s /bin/python2.7 /bin/python
+       
     - name: Download Clang-aosp
       if: env.USE_CUSTOM_CLANG == 'false'
       run: |
@@ -168,24 +178,41 @@ jobs:
          echo "CONFIG_VHOST_CROSS_ENDIAN_LEGACY=y" >> android-kernel/arch/${{ env.ARCH }}/configs/${{ env.KERNEL_CONFIG }}    
      
         
-    - name: Setup LXC
-      if: env.ENABLE_LXC == 'true'
+    - name: 开启lxc和docker配置
+      if: env.LXC_DOCKER == 'true'
       run: |
-        cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-        rm -rf utils
-        git clone https://github.com/tomxi1997/lxc-docker-support-for-android.git utils
-        echo 'source "utils/Kconfig"' >> "Kconfig"
-        echo "CONFIG_DOCKER=y" >> arch/${{ env.ARCH }}/configs/${{ env.KERNEL_CONFIG }}
-        sed -i '/CONFIG_ANDROID_PARANOID_NETWORK/d' arch/${{ env.ARCH }}/configs/${{ env.KERNEL_CONFIG }}
-        echo "# CONFIG_ANDROID_PARANOID_NETWORK is not set" >> arch/${{ env.ARCH }}/configs/${{ env.KERNEL_CONFIG }}1
-        #sed -i '/CONFIG_LOCALVERSION/d' arch/${{ env.ARCH }}/configs/${{ env.KERNEL_CONFIG }}
-        #echo 'CONFIG_LOCALVERSION="-LXC-KernelSU-support_Pdx"' >> arch/${{ env.ARCH }}/configs/${{ env.KERNEL_CONFIG }}
-           chmod +x $GITHUB_WORKSPACE/kernel_workspace/android-kernel/utils/runcpatch.sh
-        sh $GITHUB_WORKSPACE/kernel_workspace/android-kernel/utils/runcpatch.sh $GITHUB_WORKSPACE/kernel_workspace/android-kernel/kernel/cgroup/cgroup.c
-           if [ -f $GITHUB_WORKSPACE/kernel_workspace/android-kernel/net/netfilter/xt_qtaguid.c ]; then
-        patch -p0 < $GITHUB_WORKSPACE/kernel_workspace/android-kernel/utils/xt_qtaguid.patch
-        fi        
+        cd $GITHUB_WORKSPACE/kernel_workspace
+        wget https://github.com/wu17481748/lxc-docker/releases/download/lxc-docker-2config/LXC-DOCKER-OPEN-CONFIG.sh
+        chmod 777 LXC-DOCKER-OPEN-CONFIG.sh
+        ./LXC-DOCKER-OPEN-CONFIG.sh android-kernel/arch/arm64/configs/${{ env.KERNEL_CONFIG }} -w
 
+      
+    - name: 打入lxc补丁
+      if: env.LXC_PATCH == 'true'
+      run: |
+       cd $GITHUB_WORKSPACE/kernel_workspace
+       wget https://github.com/fate-think/LXC-DOCKER-KernelSU_Action/releases/download/1.0.0/runcpatch.sh
+       chmod a+x runcpatch.sh
+       if [ -f android-kernel/kernel/cgroup.c ]; then
+       ./runcpatch.sh android-kernel/kernel/cgroup.c               
+       fi
+       
+       if [ -f android-kernel/kernel/cgroup/cgroup.c ]; then
+       ./runcpatch.sh android-kernel/kernel/cgroup/cgroup.c               
+       fi
+       
+       if [ -f android-kernel/net/netfilter/xt_qtaguid.c ]; then
+         wget https://github.com/wu17481748/lxc-docker/releases/download/lxc/lxc.patch
+         patch -p0 < lxc.patch
+       fi
+
+    - name: 关闭ANDROID_PARANOID_NETWORK配置
+      if: env.ANDROID_PARANOID_NETWORK_OFF == 'true'
+      run: |
+        cd $GITHUB_WORKSPACE/kernel_workspace
+        sed -i '/CONFIG_ANDROID_PARANOID_NETWORK/d' android-kernel/arch/arm64/configs/${{ env.KERNEL_CONFIG }}
+        echo "# CONFIG_ANDROID_PARANOID_NETWORK is not set" >> android-kernel/arch/arm64/configs/${{ env.KERNEL_CONFIG }}
+        
     - name: Setup Configuration for Kernel
       run: |
         cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
@@ -221,8 +248,8 @@ jobs:
         cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
         export PATH=$GITHUB_WORKSPACE/kernel_workspace/clang-aosp/bin:$GITHUB_WORKSPACE/kernel_workspace/gas:$GITHUB_WORKSPACE/kernel_workspace/gcc-32/bin:$PATH
         export LD_LIBRARY_PATH=$GITHUB_WORKSPACE/kernel_workspace/clang-aosp/lib64:$LD_LIBRARY_PATH
-        export KBUILD_BUILD_HOST=Github-Action
-        export KBUILD_BUILD_USER=$(echo ${{ github.actor }} | tr A-Z a-z)
+        export KBUILD_BUILD_HOST=XEKNICE
+        export KBUILD_BUILD_USER=AGXMX
         make -j$(nproc --all)  O=out ARCH=${{ env.ARCH }} ${{ env.CUSTOM_CMDS }} ${{ env.EXTRA_CMDS }} ${{ env.KERNEL_CONFIG }}
         if [ ${{ env.ENABLE_CCACHE }} = true ]; then
             make -j$(nproc --all) O=out ARCH=${{ env.ARCH }} ${{ env.CUSTOM_CMDS }} ${{ env.EXTRA_CMDS }}

@@ -151,7 +151,7 @@ jobs:
             wget https://raw.githubusercontent.com/maju-blogs/KernelSU_Action/master/KernelSU.patch
             if git apply --check KernelSU.patch ; then
                 git apply KernelSU.patch
-                curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -
+                curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -s v0.9.5
                 echo "UPLOADNAME=-KernelSU" >> $GITHUB_ENV
             else
                 echo "KernelSU Patching failed"
